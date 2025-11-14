@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<title>Avgångstavla</title>
+<style>
+  body {
+    margin: 0;
+    background: #111;
+    color: #fff;
+    font-family: sans-serif;
+    width: 640px;
+    height: 360px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+    box-sizing: border-box;
+  }
+  .columns {
+    display: flex;
+    flex: 1;
+    gap: 12px;
+  }
+  .col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: #111;
+    border-radius: 8px;
+    padding: 0;
+    overflow: hidden;
+  }
+  .top-row {
+    display: flex;
+    align-items: center;
+    font-size: 30px;
+    margin-bottom: 4px;
+    min-width: 0;
+  }
+  .line {
+    font-weight: bold;
+    padding: 0.4rem;
+    border-radius: 0.5rem;
+    display: inline-block;
+    text-align: center;
+    width: 3ch;
+    max-width: 3ch;
+    margin-right: 10px;
+    flex-shrink: 0;
+  }
+  .destination {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center; /* centered by default */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-left: 5px;
+    line-height: 1.2;
+  }
+  .destination.has-ticker {
+    justify-content: flex-start; /* top align if ticker present */
+  }
+  .big-minutes {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 64px;
+    font-weight: 900;
+    text-align: center;
+    margin: 0px 0 15px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 20px;
+    table-layout: fixed;
+  }
+  th {
+    text-align: left;
+    color: #bbb;
+    font-weight: normal;
+    padding-bottom: 4px;
+    border-bottom: 2px solid #444;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  td {
+    padding: 2px 0;
+    vertical-align: middle;
+    border-bottom: 1px solid #333;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  td:nth-child(1), th:nth-child(1) {
+    width: 5ch;
+  }
+  td:nth-child(2), th:nth-child(2) {
+    width: auto;
+  }
+  td:nth-child(3), th:nth-child(3) {
+    width: 6ch;
+    text-align: right;
+  }
+  .next-line {
+    font-weight: bold;
+    padding: 0.3rem;
+    border-radius: 0.5rem;
+    display: inline-block;
+    text-align: center;
+    width: 3ch;
+    min-width: 3ch;
+    font-size: 0.9em;
+  }
+  .next-dest {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .next-time {
+    text-align: right;
+    white-space: nowrap;
+  }
+  .line-wrapper {
+    position: relative;
+    display: inline-block;
+  }
+  .warning-icon {
+    position: absolute;
+    top: -0.4rem;
+    right: -0.4rem;
+    font-size: 0.8rem;
+    color: yellow;
+    pointer-events: none;
+  }
+  
+  .warning-icon-top {
+    position: absolute;
+    top: -0.5rem;
+    right: 0rem;
+    font-size: 1rem;
+    color: yellow;
+    pointer-events: none;
+   }
+  
+  .cancelled-time {
+	color: red;
+	text-decoration: line-through;
+  }
+  
+   destination-small {
+	  font-size: 1em; /* smaller than normal destination */
+	}
+
+  .deviation-big {
+	  font-size: 0.6em; /* larger than the table deviation */
+	  color: yellow;
+	}
+	
+	#tram-stop-devs, #train-stop-devs {
+	  display: none;
+	  text-align: center;
+	}
+  
+  table tbody td {
+    padding-top: 6px;
+    padding-bottom: 6px;
+    vertical-align: middle;
+  }
+  @keyframes scroll-left {
+    0% { transform: translateX(0%); }
+    100% { transform: translateX(-100%); }
+  }
+  /* NEW: bounce back and forth for long destinations */
+  @keyframes scroll-bounce {
+    0%   { transform: translateX(0); }
+    40%  { transform: translateX(0); }
+    60%  { transform: translateX(calc(-100% + 100%)); }
+    100% { transform: translateX(0); }
+  }
+</style>
+</head>
+<body>
+<div class="columns">
+  <div class="col">
+    <div class="top-row">
+      <div id="tram-line" class="line">-</div>
+      <div id="tram-dest" class="destination"></div>
+    </div>
+    <div id="tram-min" class="big-minutes">--</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Linje</th>
+          <th>Destination</th>
+          <th>Tid</th>
+        </tr>
+      </thead>
+      <tbody id="tram-next">
+        <tr><td colspan="3" style="text-align:center;color:#bbb;">Laddar...</td></tr>
+      </tbody>
+    </table>
+	<div id="tram-stop-devs" style="font-size:14px;color:yellow;margin-top:4px;">
+		
+	</div>
+  </div>
+  <div class="col">
+    <div class="top-row">
+      <div id="train-line" class="line">-</div>
+      <div id="train-dest" class="destination"></div>
+    </div>
+    <div id="train-min" class="big-minutes">--</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Linje</th>
+          <th>Destination</th>
+          <th>Tid</th>
+        </tr>
+      </thead>
+      <tbody id="train-next">
+        <tr><td colspan="3" style="text-align:center;color:#bbb;">Laddar...</td></tr>
+      </tbody>
+    </table>
+	<div id="train-stop-devs" style="font-size:14px;color:yellow;margin-top:4px;">
+		
+	</div>
+  </div>
+</div>
+<div id="status-bar" style="
+  font-size:14px;
+  color:#bbb;
+  margin-top:8px;
+  display:flex;
+  justify-content:space-between;
+">
+  <span id="status-left"></span>
+  <span id="status-right"></span>
+</div>
+
+<script>
+let currentSiteId = 7006;
+let lastUpdateTime = null;
+let nextUpdateIn = 30; // seconds
+let lastUpdateDuration = null;
+let lastUpdateSuccess = false;
+let batteryLevel = null;
+let batteryCharging = null;
+
+function getLineColors(designation) {
+  let backgroundColor = "#555";
+  let textColor = "white";
+  if (["17", "18", "19"].includes(designation)) backgroundColor = "#169d4c";
+  else if (["1", "2", "3", "4"].includes(designation)) backgroundColor = "#008aca";
+  else if (["57", "74", "154", "164"].includes(designation)) backgroundColor = "#d61d23";
+  else if (["40", "41", "42", "43", "44"].includes(designation)) backgroundColor = "#d05d9a";
+  else if (["30", "31"].includes(designation)) backgroundColor = "#b65f1f";
+  return { backgroundColor, textColor };
+}
+
+async function fetchDepartures() {
+  const startTime = performance.now();
+  try {
+    const res = await fetch(`https://transport.integration.sl.se/v1/sites/${currentSiteId}/departures`);
+    if (!res.ok) throw new Error(`API-svar: ${res.status} ${res.statusText}`);
+    const data = await res.json();
+    if (!data.departures) throw new Error("Ingen 'departures'-nyckel i API-svaret");
+
+	const stopDevs = data.stop_deviations || [];
+	updateStopDeviations(stopDevs);
+
+
+    const trams = data.departures
+      .filter(dep => dep.line.transport_mode === "TRAM" && dep.direction_code === 1)
+      .slice(0, 3); // fetch a few more so we can skip cancellations
+
+    const trains = data.departures
+      .filter(dep => dep.line.transport_mode === "TRAIN" && dep.direction_code === 2)
+      .slice(0, 3);
+
+    lastUpdateDuration = Math.round(performance.now() - startTime);
+    updateColumn("tram", trams);
+    updateColumn("train", trains);
+    lastUpdateSuccess = true;
+    lastUpdateTime = new Date();
+    nextUpdateIn = 30;
+  } catch (err) {
+    console.error("Fel vid hämtning:", err);
+    lastUpdateSuccess = false; 
+    showErrorState("tram");
+    showErrorState("train");
+  }
+}
+
+function updateColumn(prefix, departures) {
+  const lineEl = document.getElementById(`${prefix}-line`);
+  const destEl = document.getElementById(`${prefix}-dest`);
+  const minEl = document.getElementById(`${prefix}-min`);
+  const tbody = document.getElementById(`${prefix}-next`);
+
+  destEl.classList.remove("has-ticker");
+  const oldTicker = destEl.querySelector(".ticker");
+  if (oldTicker) oldTicker.remove();
+
+  if (!departures.length) {
+    showErrorState(prefix);
+    return;
+  }
+
+  // Pick first non-cancelled for top row
+  const firstNonCancelled = departures.find(dep =>
+    dep.journey?.state !== "CANCELLED" && dep.state !== "CANCELLED"
+  );
+  const first = firstNonCancelled || departures[0];
+  const tableItems = departures.filter(dep => dep !== first);
+
+  const designation = first.line.designation || first.line.name || "-";
+  const colors = getLineColors(designation);
+
+  // Top row
+lineEl.innerHTML = `
+  <span class="line-wrapper">
+    <span class="line" style="background:${colors.backgroundColor};color:${colors.textColor};">
+      ${designation}
+    </span>
+    ${first.deviations && first.deviations.length
+      ? `<span class="warning-icon-top">🟡</span>`
+      : ""}
+  </span>
+`;
+
+  destEl.innerHTML = '';
+  const destText = document.createElement('span');
+  destText.textContent = first.destination;
+  destEl.appendChild(destText);
+
+  requestAnimationFrame(() => {
+    if (!first.deviations?.length && destText.scrollWidth > destEl.clientWidth) {
+      destText.style.display = 'inline-block';
+      destText.style.animation = 'scroll-bounce 8s ease-in-out infinite';
+    }
+  });
+
+  // Show big minutes normally (since first is never cancelled here)
+  minEl.textContent = first.display;
+  minEl.style.color = "";
+  minEl.style.textDecoration = "";
+
+  // Delay highlighting
+  if (first.state !== "CANCELLED" && first.expected && first.scheduled) {
+    const scheduled = new Date(first.scheduled);
+    const expected = new Date(first.expected);
+    const diffMin = Math.round((expected - scheduled) / 60000);
+  }
+
+  // Top-row ticker for deviations
+if (first.deviations && first.deviations.length) {
+  const devMsg = first.deviations
+    .map(dev => dev.message)
+    .filter(msg => msg.trim().toLowerCase() !== "inställd")
+    .join(" | ");
+  if (devMsg) {
+    destEl.classList.add("has-ticker");
+
+    // Destination container
+    destEl.innerHTML = '';
+    const destContainer = document.createElement("div");
+    destContainer.textContent = first.destination;
+    destContainer.style.whiteSpace = "nowrap";
+    destContainer.style.overflow = "hidden";
+    destContainer.style.textOverflow = "ellipsis";
+    destEl.appendChild(destContainer);
+
+    setTimeout(() => {
+      // Shrink destination text
+      destContainer.classList.add("destination-small");
+
+      // Deviation container
+      const scrollDiv = document.createElement("div");
+      scrollDiv.classList.add("deviation-big");
+      scrollDiv.style.whiteSpace = "nowrap";
+      scrollDiv.style.overflow = "hidden";
+
+      const scrollText = document.createElement("div");
+      scrollText.textContent = devMsg;
+      scrollText.style.display = "inline-block";
+      scrollText.style.paddingLeft = "100%";
+      const charCount = scrollText.textContent.length;
+      const seconds = Math.max(8, Math.min(40, charCount * 0.11));
+      scrollText.style.animation = `scroll-left ${seconds}s linear 1`;
+
+      scrollDiv.appendChild(scrollText);
+      destEl.appendChild(scrollDiv);
+
+      scrollText.addEventListener("animationend", () => {
+        // Remove deviation line and restore destination size
+        scrollDiv.remove();
+        destContainer.classList.remove("destination-small");
+      });
+    }, 5000);
+  }
+}
+
+  // Build table rows
+  tbody.innerHTML = "";
+  tableItems.forEach(dep => {
+    const depDesignation = dep.line.designation || dep.line.name || "-";
+    const depColors = getLineColors(depDesignation);
+    const isCancelled = dep.journey?.state === "CANCELLED" || dep.state === "CANCELLED";
+    const row = document.createElement("tr");
+    row.innerHTML = `
+      <td>
+        <span class="line-wrapper">
+          <span class="next-line" style="background:${depColors.backgroundColor};color:${depColors.textColor};">
+            ${depDesignation}
+          </span>
+          ${isCancelled
+            ? `<span class="warning-icon">🔴</span>`
+            : (dep.deviations && dep.deviations.length)
+              ? `<span class="warning-icon">🟡</span>`
+              : ""
+          }
+        </span>
+      </td>
+      <td class="next-dest">${dep.destination}</td>
+      <td class="next-time${isCancelled ? ' cancelled-time' : ''}">${dep.display}</td>
+    `;
+    tbody.appendChild(row);
+
+    // Delay deviation ticker in table rows
+    if (dep.deviations && dep.deviations.length) {
+      const devMsg = dep.deviations
+        .map(dev => dev.message)
+        .filter(msg => msg.trim().toLowerCase() !== "inställd")
+        .join(" | ");
+      if (devMsg) {
+        const destCell = row.querySelector(".next-dest");
+        const originalDest = destCell.textContent;
+        setTimeout(() => {
+          const scrollDiv = document.createElement("div");
+          scrollDiv.style.whiteSpace = "nowrap";
+          scrollDiv.style.overflow = "hidden";
+          scrollDiv.style.fontSize = "16px";
+          scrollDiv.style.color = "yellow";
+          const scrollText = document.createElement("div");
+          scrollText.textContent = devMsg;
+          scrollText.style.display = "inline-block";
+          scrollText.style.paddingLeft = "100%";
+          const charCount = scrollText.textContent.length;
+          const seconds = Math.max(8, Math.min(40, charCount * 0.11));
+          scrollText.style.animation = `scroll-left ${seconds}s linear infinite`;
+          scrollDiv.appendChild(scrollText);
+          destCell.textContent = "";
+          destCell.appendChild(scrollDiv);
+          const revertTimeout = setTimeout(() => {
+            destCell.textContent = originalDest;
+          }, seconds * 1000);
+          scrollDiv.addEventListener("click", () => {
+            clearTimeout(revertTimeout);
+            destCell.textContent = originalDest;
+          });
+        }, 5000);
+      }
+    }
+  });
+}
+
+function updateStatusBar() {
+  let lastUpdateStr = "--:--:--";
+  let freshnessEmoji = '❌';
+  let timeColor = '#bbb'; // default gray
+
+  if (lastUpdateSuccess && lastUpdateTime) {
+    lastUpdateStr = lastUpdateTime.toLocaleTimeString('sv-SE');
+    const ageSeconds = Math.floor((Date.now() - lastUpdateTime.getTime()) / 1000);
+
+    if (ageSeconds <= 60) {
+      freshnessEmoji = '✅';
+    } else {
+      freshnessEmoji = '⚠️';
+      timeColor = 'red'; // make text red if stale
+    }
+  }
+
+  let batteryStr = "";
+  if (batteryLevel !== null) {
+    if (batteryCharging) {
+      batteryStr = `${batteryLevel}% ⚡`;
+    } else {
+      batteryStr = batteryLevel <= 20 ? `${batteryLevel}% 🪫` : `${batteryLevel}% 🔋`;
+    }
+  }
+
+  const leftEl = document.getElementById('status-left');
+  leftEl.style.color = timeColor;
+  leftEl.textContent = `${freshnessEmoji} ${lastUpdateStr} (${nextUpdateIn}s)`;
+
+  document.getElementById('status-right').textContent = batteryStr;
+}
+
+
+function initBatteryStatus() {
+  if ('getBattery' in navigator) {
+    navigator.getBattery().then(battery => {
+      function updateBatteryInfo() {
+        batteryLevel = Math.round(battery.level * 100);
+        batteryCharging = battery.charging;
+        updateStatusBar();
+      }
+      updateBatteryInfo();
+
+      battery.addEventListener('levelchange', updateBatteryInfo);
+      battery.addEventListener('chargingchange', updateBatteryInfo);
+    });
+  } else {
+    console.warn('Battery API not supported in this browser.');
+  }
+}
+
+
+let tramStopMessages = [];
+let trainStopMessages = [];
+let tramViewed = false;
+let trainViewed = false;
+
+function updateStopDeviations(stopDevs) {
+  const prevTramMessages = [...tramStopMessages];
+  const prevTrainMessages = [...trainStopMessages];
+
+  function affectsTram(dev) {
+    return dev.scope?.lines?.some(l => l.transport_mode === "TRAM");
+  }
+  function affectsTrain(dev) {
+    return dev.scope?.lines?.some(l => l.transport_mode === "TRAIN");
+  }
+
+  tramStopMessages = stopDevs.filter(affectsTram).map(dev => dev.message);
+  trainStopMessages = stopDevs.filter(affectsTrain).map(dev => dev.message);
+
+  const tramEl = document.getElementById("tram-stop-devs");
+  const trainEl = document.getElementById("train-stop-devs");
+
+  // 🚨 Check if there are changes in messages
+  const tramChanged = JSON.stringify(prevTramMessages) !== JSON.stringify(tramStopMessages);
+  const trainChanged = JSON.stringify(prevTrainMessages) !== JSON.stringify(trainStopMessages);
+
+  if (tramStopMessages.length) {
+    tramEl.style.display = "block";
+    tramEl.textContent = `Stationsmeddelanden för tvärbanan (${tramStopMessages.length})`;
+    // If new or changed, highlight yellow
+    if (tramChanged) {
+      tramViewed = false;
+      tramEl.style.color = "orange";
+      tramEl.style.fontWeight = "bold";
+    } else {
+      tramEl.style.color = tramViewed ? "gray" : "orange";
+      tramEl.style.fontWeight = tramViewed ? "normal" : "bold";
+    }
+  } else {
+    tramEl.style.display = "none";
+  }
+
+  if (trainStopMessages.length) {
+    trainEl.style.display = "block";
+    trainEl.textContent = `Stationsmeddelanden för pendeltåg (${trainStopMessages.length})`;
+    if (trainChanged) {
+      trainViewed = false;
+      trainEl.style.color = "orange";
+      trainEl.style.fontWeight = "bold";
+    } else {
+      trainEl.style.color = trainViewed ? "gray" : "orange";
+      trainEl.style.fontWeight = trainViewed ? "normal" : "bold";
+    }
+  } else {
+    trainEl.style.display = "none";
+  }
+}
+
+// Handle tram click
+document.getElementById("tram-stop-devs").addEventListener("click", () => {
+  if (tramStopMessages.length) {
+    alert(tramStopMessages.join("\n\n"));
+    tramViewed = true;
+    document.getElementById("tram-stop-devs").style.color = "gray";
+    document.getElementById("tram-stop-devs").style.fontWeight = "normal";
+  } else {
+    alert("Inga stationsmeddelanden.");
+  }
+});
+
+// Handle train click
+document.getElementById("train-stop-devs").addEventListener("click", () => {
+  if (trainStopMessages.length) {
+    alert(trainStopMessages.join("\n\n"));
+    trainViewed = true;
+    document.getElementById("train-stop-devs").style.color = "gray";
+    document.getElementById("train-stop-devs").style.fontWeight = "normal";
+  } else {
+    alert("Inga stationsmeddelanden.");
+  }
+});
+
+
+setInterval(() => {
+  if (nextUpdateIn > 0) nextUpdateIn--;
+  updateStatusBar();
+}, 1000);
+
+function showErrorState(prefix) {
+  const lineContainer = document.getElementById(`${prefix}-line`);
+  const innerLine = lineContainer.querySelector('.line');
+  if (innerLine) {
+    innerLine.style.backgroundColor = '#555';
+    innerLine.style.color = 'white';
+    innerLine.textContent = '-';
+  } else {
+    lineContainer.textContent = '-';
+  }
+  document.getElementById(`${prefix}-dest`).textContent = '';
+  document.getElementById(`${prefix}-min`).textContent = '--';
+  document.getElementById(`${prefix}-next`).innerHTML =
+    `<tr><td colspan="3" style="text-align:center;color:#bbb;">Ingen data tillgänglig</td></tr>`;
+}
+
+initBatteryStatus();
+fetchDepartures();
+setInterval(fetchDepartures, 30000);
+</script>
+</body>
+</html>
