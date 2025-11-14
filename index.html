@@ -273,11 +273,11 @@ async function fetchDepartures() {
 
 
     const trams = data.departures
-      .filter(dep => dep.line.transport_mode === "TRAM" && dep.direction_code === 1)
+      .filter(dep => dep.line.transport_mode === "TRAIN" && dep.direction_code === 2)
       .slice(0, 3); // fetch a few more so we can skip cancellations
 
     const trains = data.departures
-      .filter(dep => dep.line.transport_mode === "TRAIN" && dep.direction_code === 2)
+      .filter(dep => dep.line.transport_mode === "TRAIN" && dep.direction_code === 1)
       .slice(0, 3);
 
     lastUpdateDuration = Math.round(performance.now() - startTime);
