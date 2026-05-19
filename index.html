@@ -382,7 +382,7 @@ function fitBoardToViewport() {
   // Reset transform to measure natural size
   cols.style.transition = 'transform 120ms ease-out';
   cols.style.transformOrigin = 'top left';
-  cols.style.transform = 'scale(1)';
+  cols.style.transform = 'translateX(0px) scale(1)';
 
   const rect = cols.getBoundingClientRect();
   const naturalW = rect.width;
@@ -392,10 +392,12 @@ function fitBoardToViewport() {
   const padLeft = parseFloat(bodyStyle.paddingLeft) || 0;
   const padRight = parseFloat(bodyStyle.paddingRight) || 0;
 
-  const availW = window.innerWidth - padLeft - padRight - 1; // Safari rounding cushion
+  const viewportW = window.visualViewport ? window.visualViewport.width : window.innerWidth;
+  const viewportH = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+  const availW = viewportW - padLeft - padRight - 2; // Safari rounding cushion
   const statusBar = document.getElementById('status-bar');
   const statusH = statusBar ? statusBar.getBoundingClientRect().height : 0;
-  const availH = window.innerHeight - statusH - 8; // small margin
+  const availH = viewportH - statusH - 8; // small margin
 
   // Compute scale limited to 1 (don't upscale)
   let scaleW = naturalW > 0 ? (availW / naturalW) : 1;
@@ -405,7 +407,21 @@ function fitBoardToViewport() {
   // iOS gets stricter floor for readability; only scale if needed after iOS-specific CSS applies.
   scale = Math.max(scale, isIOS ? 0.52 : 0.45);
 
-  cols.style.transform = `scale(${scale})`;
+  // First apply scale, then nudge horizontally if Safari sub-pixel rounding clips an edge.
+  cols.style.transform = `translateX(0px) scale(${scale})`;
+  const transformedRect = cols.getBoundingClientRect();
+  const minLeft = padLeft;
+  const maxRight = viewportW - padRight;
+  let offsetX = 0;
+
+  if (transformedRect.left < minLeft) {
+    offsetX += (minLeft - transformedRect.left);
+  }
+  if (transformedRect.right > maxRight) {
+    offsetX -= (transformedRect.right - maxRight);
+  }
+
+  cols.style.transform = `translateX(${offsetX}px) scale(${scale})`;
 }
 
 window.addEventListener('resize', scheduleFitBoard);
