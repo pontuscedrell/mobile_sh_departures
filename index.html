@@ -34,11 +34,12 @@
     border-radius: 8px;
     padding: 0;
     overflow: hidden;
+    min-width: 0;
   }
   .top-row {
     display: flex;
     align-items: center;
-    font-size: 40px;
+    font-size: clamp(24px, 4.2vw, 40px);
     margin-bottom: 4px;
     min-width: 0;
   }
@@ -83,13 +84,13 @@
   }
   .big-minutes {
     font-family: 'Orbitron', sans-serif;
-    font-size: 64px;
+    font-size: clamp(40px, 8vw, 64px);
     font-weight: 900;
     text-align: center;
     margin: 0px 0 15px;
   }
   .big-delay-text {
-    font-size: 16px;
+    font-size: clamp(12px, 2vw, 16px);
     line-height: 1.1;
     color: #f4d23c;
     text-align: center;
@@ -100,7 +101,7 @@
   table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 30px;
+    font-size: clamp(16px, 3vw, 30px);
     table-layout: fixed;
   }
   th {
@@ -182,8 +183,8 @@
   }
   .warning-icon {
     position: absolute;
-    top: -0.4rem;
-    right: -0.4rem;
+    top: -0.25rem;
+    right: 0;
     font-size: 0.8rem;
     color: yellow;
     pointer-events: none;
@@ -191,8 +192,8 @@
   
   .warning-icon-top {
     position: absolute;
-    top: -0.5rem;
-    right: 0rem;
+    top: -0.4rem;
+    right: 0;
     font-size: 1rem;
     color: yellow;
     pointer-events: none;
@@ -222,6 +223,17 @@
     padding-bottom: 12px;
     vertical-align: middle;
   }
+  #status-bar {
+    font-size: clamp(11px, 2vw, 14px) !important;
+    margin-top: 8px;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    line-height: 1.2;
+  }
+  #tram-stop-devs, #train-stop-devs {
+    font-size: clamp(11px, 2vw, 14px) !important;
+  }
   @keyframes scroll-left {
     0% { transform: translateX(0%); }
     100% { transform: translateX(-100%); }
@@ -232,6 +244,47 @@
     40%  { transform: translateX(0); }
     60%  { transform: translateX(calc(-100% + 100%)); }
     100% { transform: translateX(0); }
+  }
+  @media (max-width: 960px), (max-height: 720px) {
+    body {
+      padding-top: max(6px, env(safe-area-inset-top));
+      padding-right: max(6px, env(safe-area-inset-right));
+      padding-bottom: max(6px, env(safe-area-inset-bottom));
+      padding-left: max(6px, env(safe-area-inset-left));
+    }
+
+    .columns {
+      /* Keep side-by-side layout even on small viewports; only reduce gap */
+      gap: 8px;
+    }
+
+    .top-row {
+      font-size: clamp(20px, 5.5vw, 32px);
+    }
+
+    .big-minutes {
+      font-size: clamp(32px, 12vw, 56px);
+      margin-bottom: 10px;
+    }
+
+    .big-delay-text {
+      margin-top: -18px;
+      margin-bottom: 18px;
+    }
+
+    table {
+      font-size: clamp(14px, 3.8vw, 22px);
+    }
+
+    table tbody td {
+      padding-top: 8px;
+      padding-bottom: 8px;
+    }
+
+    .line,
+    .next-line {
+      padding: 0.25rem 0.35rem;
+    }
   }
 </style>
 </head>
@@ -283,17 +336,59 @@
   </div>
 </div>
 <div id="status-bar" style="
-  font-size:14px;
   color:#bbb;
-  margin-top:8px;
-  display:flex;
-  justify-content:space-between;
 ">
   <span id="status-left"></span>
   <span id="status-right"></span>
 </div>
 
 <script>
+// Ensure board always fits viewport: scale .columns to available width/height when needed
+function fitBoardToViewport() {
+  const cols = document.querySelector('.columns');
+  if (!cols) return;
+
+  // Reset transform to measure natural size
+  cols.style.transition = 'transform 120ms ease-out';
+  cols.style.transformOrigin = 'top center';
+  cols.style.transform = 'scale(1)';
+
+  const rect = cols.getBoundingClientRect();
+  const naturalW = rect.width;
+  const naturalH = rect.height;
+
+  const bodyStyle = getComputedStyle(document.body);
+  const padLeft = parseFloat(bodyStyle.paddingLeft) || 0;
+  const padRight = parseFloat(bodyStyle.paddingRight) || 0;
+
+  const availW = window.innerWidth - padLeft - padRight;
+  const statusBar = document.getElementById('status-bar');
+  const statusH = statusBar ? statusBar.getBoundingClientRect().height : 0;
+  const availH = window.innerHeight - statusH - 8; // small margin
+
+  // Compute scale limited to 1 (don't upscale)
+  let scaleW = naturalW > 0 ? (availW / naturalW) : 1;
+  let scaleH = naturalH > 0 ? (availH / naturalH) : 1;
+  let scale = Math.min(1, scaleW, scaleH);
+
+  // Prevent infinitesimally small text; user requested no clipping so we allow scale down
+  scale = Math.max(scale, 0.45);
+
+  cols.style.transform = `scale(${scale})`;
+}
+
+window.addEventListener('resize', () => requestAnimationFrame(fitBoardToViewport));
+
+// Re-fit when departures are updated — observe the columns container for changes
+const colsEl = document.querySelector('.columns');
+if (colsEl) {
+  const mo = new MutationObserver(() => requestAnimationFrame(fitBoardToViewport));
+  mo.observe(colsEl, { childList: true, subtree: true, characterData: true, attributes: true });
+}
+
+// Initial fit
+window.addEventListener('load', () => setTimeout(fitBoardToViewport, 50));
+
 let currentSiteId = 7006;
 let lastUpdateTime = null;
 let nextUpdateIn = 30; // seconds
