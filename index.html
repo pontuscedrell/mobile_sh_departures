@@ -16,9 +16,9 @@
     display: flex;
     flex-direction: column;
     padding-top: max(10px, env(safe-area-inset-top));
-    padding-right: max(10px, env(safe-area-inset-right));
+    padding-right: max(10px, env(safe-area-inset-left), env(safe-area-inset-right));
     padding-bottom: max(10px, env(safe-area-inset-bottom));
-    padding-left: max(10px, env(safe-area-inset-left));
+    padding-left: max(10px, env(safe-area-inset-left), env(safe-area-inset-right));
     box-sizing: border-box;
   }
   .columns {
@@ -248,9 +248,9 @@
   @media (max-width: 960px), (max-height: 720px) {
     body {
       padding-top: max(6px, env(safe-area-inset-top));
-      padding-right: max(6px, env(safe-area-inset-right));
+      padding-right: max(6px, env(safe-area-inset-left), env(safe-area-inset-right));
       padding-bottom: max(6px, env(safe-area-inset-bottom));
-      padding-left: max(6px, env(safe-area-inset-left));
+      padding-left: max(6px, env(safe-area-inset-left), env(safe-area-inset-right));
     }
 
     .columns {
@@ -285,6 +285,22 @@
     .next-line {
       padding: 0.25rem 0.35rem;
     }
+  }
+
+  /* iOS-specific typography minima for better fit without stacking */
+  html.ios .top-row {
+    font-size: clamp(18px, 4vw, 32px);
+  }
+  html.ios .big-minutes {
+    font-size: clamp(28px, 7vw, 56px);
+  }
+  html.ios table {
+    font-size: clamp(13px, 2.7vw, 24px);
+  }
+  html.ios #status-bar,
+  html.ios #tram-stop-devs,
+  html.ios #train-stop-devs {
+    font-size: clamp(10px, 1.8vw, 13px) !important;
   }
 </style>
 </head>
@@ -343,6 +359,21 @@
 </div>
 
 <script>
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+if (isIOS) {
+  document.documentElement.classList.add('ios');
+}
+
+let fitRaf = null;
+function scheduleFitBoard() {
+  if (fitRaf) cancelAnimationFrame(fitRaf);
+  fitRaf = requestAnimationFrame(() => {
+    fitRaf = null;
+    fitBoardToViewport();
+  });
+}
+
 // Ensure board always fits viewport: scale .columns to available width/height when needed
 function fitBoardToViewport() {
   const cols = document.querySelector('.columns');
@@ -350,7 +381,7 @@ function fitBoardToViewport() {
 
   // Reset transform to measure natural size
   cols.style.transition = 'transform 120ms ease-out';
-  cols.style.transformOrigin = 'top center';
+  cols.style.transformOrigin = 'top left';
   cols.style.transform = 'scale(1)';
 
   const rect = cols.getBoundingClientRect();
@@ -361,7 +392,7 @@ function fitBoardToViewport() {
   const padLeft = parseFloat(bodyStyle.paddingLeft) || 0;
   const padRight = parseFloat(bodyStyle.paddingRight) || 0;
 
-  const availW = window.innerWidth - padLeft - padRight;
+  const availW = window.innerWidth - padLeft - padRight - 1; // Safari rounding cushion
   const statusBar = document.getElementById('status-bar');
   const statusH = statusBar ? statusBar.getBoundingClientRect().height : 0;
   const availH = window.innerHeight - statusH - 8; // small margin
@@ -371,23 +402,23 @@ function fitBoardToViewport() {
   let scaleH = naturalH > 0 ? (availH / naturalH) : 1;
   let scale = Math.min(1, scaleW, scaleH);
 
-  // Prevent infinitesimally small text; user requested no clipping so we allow scale down
-  scale = Math.max(scale, 0.45);
+  // iOS gets stricter floor for readability; only scale if needed after iOS-specific CSS applies.
+  scale = Math.max(scale, isIOS ? 0.52 : 0.45);
 
   cols.style.transform = `scale(${scale})`;
 }
 
-window.addEventListener('resize', () => requestAnimationFrame(fitBoardToViewport));
+window.addEventListener('resize', scheduleFitBoard);
 
 // Re-fit when departures are updated — observe the columns container for changes
 const colsEl = document.querySelector('.columns');
 if (colsEl) {
-  const mo = new MutationObserver(() => requestAnimationFrame(fitBoardToViewport));
+  const mo = new MutationObserver(scheduleFitBoard);
   mo.observe(colsEl, { childList: true, subtree: true, characterData: true, attributes: true });
 }
 
 // Initial fit
-window.addEventListener('load', () => setTimeout(fitBoardToViewport, 50));
+window.addEventListener('load', () => setTimeout(scheduleFitBoard, 50));
 
 let currentSiteId = 7006;
 let lastUpdateTime = null;
@@ -620,6 +651,7 @@ function updateColumn(prefix, departures, opts = {}) {
     if (!first.deviations?.length && destText.scrollWidth > destEl.clientWidth) {
       destText.style.display = 'inline-block';
       destText.style.animation = 'scroll-bounce 8s ease-in-out infinite';
+      scheduleFitBoard();
     }
   });
 
@@ -683,11 +715,13 @@ function updateColumn(prefix, departures, opts = {}) {
 
       scrollDiv.appendChild(scrollText);
       destEl.appendChild(scrollDiv);
+      scheduleFitBoard();
 
       scrollText.addEventListener("animationend", () => {
         // Remove deviation line and restore destination size
         scrollDiv.remove();
         destContainer.classList.remove("destination-small");
+        scheduleFitBoard();
       });
     }, 5000);
   }
@@ -750,17 +784,22 @@ function updateColumn(prefix, departures, opts = {}) {
           scrollDiv.appendChild(scrollText);
           destCell.textContent = "";
           destCell.appendChild(scrollDiv);
+          scheduleFitBoard();
           const revertTimeout = setTimeout(() => {
             destCell.textContent = originalDest;
+            scheduleFitBoard();
           }, seconds * 1000);
           scrollDiv.addEventListener("click", () => {
             clearTimeout(revertTimeout);
             destCell.textContent = originalDest;
+            scheduleFitBoard();
           });
         }, 5000);
       }
     }
   });
+
+  scheduleFitBoard();
 }
 
 function updateStatusBar() {
