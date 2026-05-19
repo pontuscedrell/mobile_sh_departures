@@ -2,6 +2,7 @@
 <html lang="sv">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Avgångstavla</title>
 <style>
   body {
@@ -14,7 +15,10 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    padding: 10px;
+    padding-top: max(10px, env(safe-area-inset-top));
+    padding-right: max(10px, env(safe-area-inset-right));
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+    padding-left: max(10px, env(safe-area-inset-left));
     box-sizing: border-box;
   }
   .columns {
@@ -60,6 +64,20 @@
     margin-left: 5px;
     line-height: 1.2;
   }
+  .destination-main {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .destination-name {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    flex: 0 1 auto;
+  }
   .destination.has-ticker {
     justify-content: flex-start; /* top align if ticker present */
   }
@@ -69,6 +87,15 @@
     font-weight: 900;
     text-align: center;
     margin: 0px 0 15px;
+  }
+  .big-delay-text {
+    font-size: 16px;
+    line-height: 1.1;
+    color: #f4d23c;
+    text-align: center;
+    margin-top: -30px;
+    margin-bottom: 30px;
+    min-height: 1.2em;
   }
   table {
     width: 100%;
@@ -101,7 +128,7 @@
     width: auto;
   }
   td:nth-child(3), th:nth-child(3) {
-    width: 6ch;
+    width: 8ch;
     text-align: right;
   }
   .next-line {
@@ -122,6 +149,32 @@
   .next-time {
     text-align: right;
     white-space: nowrap;
+  }
+  .delay-badge {
+    background: #f4d23c;
+    color: #111;
+    font-weight: bold;
+    white-space: nowrap;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.08rem 0.35rem;
+    border-radius: 0.35rem;
+    line-height: 1;
+    font-size: 0.58em;
+    vertical-align: middle;
+  }
+  .delay-badge-top {
+    font-size: 0.5em;
+  }
+  .next-time-group {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.4rem;
+    white-space: nowrap;
+    width: 100%;
   }
   .line-wrapper {
     position: relative;
@@ -150,7 +203,7 @@
 	text-decoration: line-through;
   }
   
-   destination-small {
+  .destination-small {
 	  font-size: 1em; /* smaller than normal destination */
 	}
 
@@ -246,8 +299,16 @@ let lastUpdateTime = null;
 let nextUpdateIn = 30; // seconds
 let lastUpdateDuration = null;
 let lastUpdateSuccess = false;
+let consecutiveFailureStartedAt = null;
+let failedFetchCount = 0;
 let batteryLevel = null;
 let batteryCharging = null;
+// Cache the last successful departures per prefix so we can show estimates
+const lastSuccessful = {
+  tram: null,
+  train: null
+};
+const usingCache = { tram: false, train: false };
 
 function getLineColors(designation) {
   let backgroundColor = "#555";
@@ -262,6 +323,19 @@ function getLineColors(designation) {
 
 async function fetchDepartures() {
   const startTime = performance.now();
+  nextUpdateIn = 30;
+  updateStatusBar();
+  // Simulation helper: add ?simulateFail=1 to the page URL to force an API failure
+  try {
+    const sim = new URLSearchParams(location.search).get('simulateFail');
+    if (sim) {
+      console.warn('Simulating API failure because simulateFail is set');
+      throw new Error('Simulated failure');
+    }
+  } catch (e) {
+    // allow the simulated error to be handled by the main catch below
+    throw e;
+  }
   try {
     const res = await fetch(`https://transport.integration.sl.se/v1/sites/${currentSiteId}/departures`);
     if (!res.ok) throw new Error(`API-svar: ${res.status} ${res.statusText}`);
@@ -281,20 +355,125 @@ async function fetchDepartures() {
       .slice(0, 3);
 
     lastUpdateDuration = Math.round(performance.now() - startTime);
+    // Save successful results for fallback
+    lastSuccessful.tram = { departures: trams, fetchedAt: Date.now() };
+    lastSuccessful.train = { departures: trains, fetchedAt: Date.now() };
+    usingCache.tram = false;
+    usingCache.train = false;
+
     updateColumn("tram", trams);
     updateColumn("train", trains);
     lastUpdateSuccess = true;
+    failedFetchCount = 0;
     lastUpdateTime = new Date();
+    consecutiveFailureStartedAt = null;
     nextUpdateIn = 30;
+    updateStatusBar();
   } catch (err) {
     console.error("Fel vid hämtning:", err);
-    lastUpdateSuccess = false; 
-    showErrorState("tram");
-    showErrorState("train");
+    lastUpdateSuccess = false;
+    failedFetchCount += 1;
+    if (!consecutiveFailureStartedAt) {
+      consecutiveFailureStartedAt = Date.now();
+    }
+    // Try to show cached/estimated data if we have it
+    if (lastSuccessful.tram && lastSuccessful.tram.departures.length) {
+      usingCache.tram = true;
+      renderCachedColumn("tram");
+    } else {
+      showErrorState("tram");
+    }
+
+    if (lastSuccessful.train && lastSuccessful.train.departures.length) {
+      usingCache.train = true;
+      renderCachedColumn("train");
+    } else {
+      showErrorState("train");
+    }
+    updateStatusBar();
   }
 }
 
-function updateColumn(prefix, departures) {
+function getDepartureTimestamp(dep) {
+  const timeStr = dep.expected || dep.scheduled;
+  if (!timeStr) return null;
+  const timestamp = new Date(timeStr).getTime();
+  return Number.isNaN(timestamp) ? null : timestamp;
+}
+
+function getDelayMinutes(dep) {
+  const simulatedDelay = Number.parseInt(new URLSearchParams(location.search).get('simulateDelay') || '', 10);
+  if (!Number.isNaN(simulatedDelay) && simulatedDelay > 3) {
+    return simulatedDelay;
+  }
+
+  if (!dep?.expected || !dep?.scheduled) return null;
+  const expected = new Date(dep.expected).getTime();
+  const scheduled = new Date(dep.scheduled).getTime();
+  if (Number.isNaN(expected) || Number.isNaN(scheduled)) return null;
+
+  const diffMin = Math.round((expected - scheduled) / 60000);
+  return diffMin > 3 ? diffMin : null;
+}
+
+function adjustedDeparturesFromCache(departures) {
+  const now = Date.now();
+  return departures
+    .map(dep => {
+      const copy = JSON.parse(JSON.stringify(dep));
+      const timestamp = getDepartureTimestamp(copy);
+
+      if (timestamp === null) {
+        copy.display = copy.display || "--";
+        copy._minutesUntil = Number.POSITIVE_INFINITY;
+        copy._keepUntil = Number.POSITIVE_INFINITY;
+        return copy;
+      }
+
+      const msUntil = timestamp - now;
+      const minutesUntil = Math.ceil(msUntil / 60000);
+      copy._minutesUntil = minutesUntil;
+      copy._keepUntil = timestamp + 60000;
+
+      if (minutesUntil <= 0) {
+        copy.display = "Nu";
+      } else {
+        copy.display = `${minutesUntil} min`;
+      }
+
+      return copy;
+    })
+    .filter(dep => dep._keepUntil === Number.POSITIVE_INFINITY || now < dep._keepUntil)
+    .sort((a, b) => {
+      const timeA = getDepartureTimestamp(a) ?? Number.POSITIVE_INFINITY;
+      const timeB = getDepartureTimestamp(b) ?? Number.POSITIVE_INFINITY;
+      return timeA - timeB;
+    });
+}
+
+function renderCachedColumn(prefix) {
+  const cached = lastSuccessful[prefix];
+  if (!cached?.departures?.length) {
+    showErrorState(prefix);
+    return;
+  }
+
+  const adjusted = adjustedDeparturesFromCache(cached.departures);
+  if (!adjusted.length) {
+    usingCache[prefix] = false;
+    showErrorState(prefix);
+    return;
+  }
+
+  updateColumn(prefix, adjusted, { cached: true, cachedAt: cached.fetchedAt });
+}
+
+function hasCacheGraceExpired() {
+  if (!consecutiveFailureStartedAt) return false;
+  return (Date.now() - consecutiveFailureStartedAt) >= 5 * 60 * 1000;
+}
+
+function updateColumn(prefix, departures, opts = {}) {
   const lineEl = document.getElementById(`${prefix}-line`);
   const destEl = document.getElementById(`${prefix}-dest`);
   const minEl = document.getElementById(`${prefix}-min`);
@@ -318,9 +497,11 @@ function updateColumn(prefix, departures) {
 
   const designation = first.line.designation || first.line.name || "-";
   const colors = getLineColors(designation);
+  const topDelay = getDelayMinutes(first);
 
   // Top row
-lineEl.innerHTML = `
+  const isCached = !!opts.cached;
+  lineEl.innerHTML = `
   <span class="line-wrapper">
     <span class="line" style="background:${colors.backgroundColor};color:${colors.textColor};">
       ${designation}
@@ -332,9 +513,13 @@ lineEl.innerHTML = `
 `;
 
   destEl.innerHTML = '';
+  const destRow = document.createElement('div');
+  destRow.className = 'destination-main';
   const destText = document.createElement('span');
+  destText.className = 'destination-name';
   destText.textContent = first.destination;
-  destEl.appendChild(destText);
+  destRow.appendChild(destText);
+  destEl.appendChild(destRow);
 
   requestAnimationFrame(() => {
     if (!first.deviations?.length && destText.scrollWidth > destEl.clientWidth) {
@@ -343,10 +528,19 @@ lineEl.innerHTML = `
     }
   });
 
-  // Show big minutes normally (since first is never cancelled here)
+  // Keep cached countdowns looking like the live board.
   minEl.textContent = first.display;
-  minEl.style.color = "";
+  minEl.style.color = '';
   minEl.style.textDecoration = "";
+
+  let bigDelayEl = document.getElementById(`${prefix}-delay`);
+  if (!bigDelayEl) {
+    bigDelayEl = document.createElement('div');
+    bigDelayEl.id = `${prefix}-delay`;
+    bigDelayEl.className = 'big-delay-text';
+    minEl.insertAdjacentElement('afterend', bigDelayEl);
+  }
+  bigDelayEl.textContent = topDelay !== null ? `Försenad ${topDelay} min` : '';
 
   // Delay highlighting
   if (first.state !== "CANCELLED" && first.expected && first.scheduled) {
@@ -356,7 +550,7 @@ lineEl.innerHTML = `
   }
 
   // Top-row ticker for deviations
-if (first.deviations && first.deviations.length) {
+  if (first.deviations && first.deviations.length) {
   const devMsg = first.deviations
     .map(dev => dev.message)
     .filter(msg => msg.trim().toLowerCase() !== "inställd")
@@ -367,10 +561,11 @@ if (first.deviations && first.deviations.length) {
     // Destination container
     destEl.innerHTML = '';
     const destContainer = document.createElement("div");
-    destContainer.textContent = first.destination;
-    destContainer.style.whiteSpace = "nowrap";
-    destContainer.style.overflow = "hidden";
-    destContainer.style.textOverflow = "ellipsis";
+    destContainer.className = "destination-main";
+    const destLabel = document.createElement("span");
+    destLabel.className = "destination-name";
+    destLabel.textContent = first.destination;
+    destContainer.appendChild(destLabel);
     destEl.appendChild(destContainer);
 
     setTimeout(() => {
@@ -409,6 +604,7 @@ if (first.deviations && first.deviations.length) {
     const depDesignation = dep.line.designation || dep.line.name || "-";
     const depColors = getLineColors(depDesignation);
     const isCancelled = dep.journey?.state === "CANCELLED" || dep.state === "CANCELLED";
+    const delayMinutes = getDelayMinutes(dep);
     const row = document.createElement("tr");
     row.innerHTML = `
       <td>
@@ -425,7 +621,12 @@ if (first.deviations && first.deviations.length) {
         </span>
       </td>
       <td class="next-dest">${dep.destination}</td>
-      <td class="next-time${isCancelled ? ' cancelled-time' : ''}">${dep.display}</td>
+      <td class="next-time${isCancelled ? ' cancelled-time' : ''}">
+        <span class="next-time-group">
+          ${delayMinutes !== null ? `<span class="delay-badge">+${delayMinutes}</span>` : ""}
+          <span>${dep.display}</span>
+        </span>
+      </td>
     `;
     tbody.appendChild(row);
 
@@ -471,6 +672,7 @@ function updateStatusBar() {
   let lastUpdateStr = "--:--:--";
   let freshnessEmoji = '❌';
   let timeColor = '#bbb'; // default gray
+  let includeTrailingCountdown = true;
 
   if (lastUpdateSuccess && lastUpdateTime) {
     lastUpdateStr = lastUpdateTime.toLocaleTimeString('sv-SE');
@@ -481,6 +683,26 @@ function updateStatusBar() {
     } else {
       freshnessEmoji = '⚠️';
       timeColor = 'red'; // make text red if stale
+    }
+  }
+
+  const isUsingCache = (!lastUpdateSuccess) && (usingCache.tram || usingCache.train);
+  if (isUsingCache) {
+    const withinGracePeriod = !hasCacheGraceExpired();
+    includeTrailingCountdown = false;
+
+    if (lastUpdateTime) {
+      lastUpdateStr = `${lastUpdateTime.toLocaleTimeString('sv-SE')} (${nextUpdateIn}s) (${failedFetchCount})`;
+    } else {
+      lastUpdateStr = `Cache aktiv (${nextUpdateIn}s) (${failedFetchCount})`;
+    }
+
+    if (withinGracePeriod) {
+      freshnessEmoji = '🕘';
+      timeColor = 'orange';
+    } else {
+      freshnessEmoji = '❌';
+      timeColor = 'red';
     }
   }
 
@@ -495,7 +717,9 @@ function updateStatusBar() {
 
   const leftEl = document.getElementById('status-left');
   leftEl.style.color = timeColor;
-  leftEl.textContent = `${freshnessEmoji} ${lastUpdateStr} (${nextUpdateIn}s)`;
+  leftEl.textContent = includeTrailingCountdown
+    ? `${freshnessEmoji} ${lastUpdateStr} (${nextUpdateIn}s)`
+    : `${freshnessEmoji} ${lastUpdateStr}`;
 
   document.getElementById('status-right').textContent = batteryStr;
 }
@@ -620,13 +844,48 @@ function showErrorState(prefix) {
   }
   document.getElementById(`${prefix}-dest`).textContent = '';
   document.getElementById(`${prefix}-min`).textContent = '--';
-  document.getElementById(`${prefix}-next`).innerHTML =
-    `<tr><td colspan="3" style="text-align:center;color:#bbb;">Ingen data tillgänglig</td></tr>`;
+  const delayEl = document.getElementById(`${prefix}-delay`);
+  if (delayEl) {
+    delayEl.textContent = '';
+  }
+  const tbody = document.getElementById(`${prefix}-next`);
+  if (!lastSuccessful[prefix]) {
+    // First launch and no cached data yet
+    tbody.innerHTML = `<tr><td colspan="3" style="text-align:center;color:#bbb;">Ingen data ännu</td></tr>`;
+  } else {
+    tbody.innerHTML = `<tr><td colspan="3" style="text-align:center;color:#bbb;">Ingen data tillgänglig</td></tr>`;
+  }
 }
 
 initBatteryStatus();
 fetchDepartures();
 setInterval(fetchDepartures, 30000);
+
+// Periodically refresh cached displays so estimated times count down
+function refreshCachedDisplays() {
+  if (hasCacheGraceExpired()) {
+    if (usingCache.tram) {
+      usingCache.tram = false;
+      showErrorState('tram');
+    }
+    if (usingCache.train) {
+      usingCache.train = false;
+      showErrorState('train');
+    }
+    updateStatusBar();
+    return;
+  }
+
+  if (usingCache.tram && lastSuccessful.tram) {
+    renderCachedColumn('tram');
+  }
+  if (usingCache.train && lastSuccessful.train) {
+    renderCachedColumn('train');
+  }
+  updateStatusBar();
+}
+// update every 10 seconds while using cache
+setInterval(refreshCachedDisplays, 10000);
 </script>
 </body>
 </html>
