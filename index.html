@@ -157,6 +157,7 @@
     font-weight: bold;
     white-space: nowrap;
     flex-shrink: 0;
+    width: fit-content;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -175,7 +176,8 @@
     align-items: center;
     gap: 0.4rem;
     white-space: nowrap;
-    width: 100%;
+    width: max-content;
+    margin-left: auto;
   }
   .line-wrapper {
     position: relative;
@@ -474,11 +476,7 @@ async function fetchDepartures() {
       console.warn('Simulating API failure because simulateFail is set');
       throw new Error('Simulated failure');
     }
-  } catch (e) {
-    // allow the simulated error to be handled by the main catch below
-    throw e;
-  }
-  try {
+
     const res = await fetch(`https://transport.integration.sl.se/v1/sites/${currentSiteId}/departures`);
     if (!res.ok) throw new Error(`API-svar: ${res.status} ${res.statusText}`);
     const data = await res.json();
@@ -489,7 +487,7 @@ async function fetchDepartures() {
 
 
     const trams = data.departures
-      .filter(dep => dep.line.transport_mode === "TRAIN" && dep.direction_code === 2)
+      .filter(dep => dep.line.transport_mode === "TRAM" && dep.direction_code === 2)
       .slice(0, 3); // fetch a few more so we can skip cancellations
 
     const trains = data.departures
